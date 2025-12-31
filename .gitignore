@@ -1,10 +1,36 @@
-# Python cache
+# Python
 __pycache__/
-*.pyc
-
-# Models / large files
-model-ko/
-yolov8n.pt
-
-# Environment
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
 .env
+
+# 모델 파일 (용량이 큼)
+*.pt
+*.pth
+*.onnx
+*.h5
+vosk-model*/
+
+# 압축 파일
+*.zip
+
+# Mac
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 로그
+*.log
+
+# 임시 파일
+*.tmp
+*.temp
