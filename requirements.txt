@@ -1,6 +1,8 @@
 # FastAPI and Web Server
 fastapi
 uvicorn[standard]
+ultralytics
+timm
 pydantic
 python-multipart
 
@@ -16,4 +18,8 @@ mediapipe
 opencv-python
 insightface
 onnxruntime
+
+# STT (음성 인식)
+openai-whisper
+pyaudio
 

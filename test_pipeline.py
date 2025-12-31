@@ -1,13 +1,21 @@
+# import os
+# os.environ['OPENCV_AVFOUNDATION_SKIP_AUTH'] = '1'
+# Mac 카메라권한 문제 관해 환경변수 추가 (Windows 주석처리)
+
 import cv2
 import torch
 import numpy as np
 import time
 import threading
 import queue
+import json
+import platform
+import subprocess
+
+# Windows 전용 (Mac에서는 주석처리)
 import win32com.client
 import pythoncom
-import json
-import os
+
 from ultralytics import YOLO
 from follow_up_service import FollowUpSpeechService
 
@@ -110,28 +118,34 @@ except ImportError:
 # ==========================================
 
 class MVPTestPipeline:
-    def __init__(self):
+    def __init__(self, web_mode=False):
+        """
+        web_mode=True: 웹 모드 (서버 STT/TTS 비활성화, 클라이언트에서 처리)
+        web_mode=False: 로컬 모드 (서버 STT/TTS 활성화)
+        """
+        self.web_mode = web_mode
         print("음성 지원 모드로 전환 중... 모델 로딩 중...")
-        
+
         # 설정값
         self.inference_size = (320, 320)
         self.frame_skip = 3
         self.frame_count = 0
-        self.K_DEPTH = 3000.0 
+        self.K_DEPTH = 3000.0
         self.running = False  # 제어용 플래그
 
         # 음성 안내 설정 (볼륨 및 뮤트)
         self.volume = 100  # 0 ~ 100
         self.is_muted = False
 
-        # TTS 큐 및 스레드 초기화
+        # TTS 큐 및 스레드 초기화 (웹 모드가 아닐 때만)
         self.speech_queue = queue.Queue()
-        self.tts_thread = threading.Thread(target=self._tts_worker, daemon=True)
-        self.tts_thread.start()
+        if not web_mode:
+            self.tts_thread = threading.Thread(target=self._tts_worker, daemon=True)
+            self.tts_thread.start()
 
-        # STT (음성 인식) 초기화
+        # STT (음성 인식) 초기화 (웹 모드가 아닐 때만)
         self.stt_thread = None
-        if WHISPER_AVAILABLE and PYAUDIO_AVAILABLE:
+        if not web_mode and WHISPER_AVAILABLE and PYAUDIO_AVAILABLE:
             try:
                 # Whisper 'base' 모델 로딩 (CPU 사용 시 최적화)
                 # 다국어 모델이므로 언어를 ko로 고정하면 더 정확함
@@ -140,15 +154,16 @@ class MVPTestPipeline:
                 self.stt_thread = threading.Thread(target=self._stt_worker, daemon=True)
                 self.stt_thread.start()
             except Exception as e:
-                print(f"⚠️ STT 초기화 중 오류 발생: {e}")
-        else:
-            print(f"⚠️ 음성 명령이 비활성화되었습니다. (라이브러리 미설치)")
+                print(f"STT 초기화 중 오류 발생: {e}")
+        elif not web_mode:
+            print(f"음성 명령이 비활성화되었습니다. (라이브러리 미설치)")
         
         # FollowUp Manager 초기화
         self.follow_up_mgr = FollowUpManager(self)
 
-        # 시작 알림 (스피커 확인용)
-        self.speak("시스템을 시작합니다.")
+        # 시작 알림 (스피커 확인용) - 웹 모드가 아닐 때만
+        if not web_mode:
+            self.speak("시스템을 시작합니다.")
 
         # 음성 상태 관리
         self.announced_objects = {} # {label: last_seen_time}
@@ -198,38 +213,52 @@ class MVPTestPipeline:
         self.POS_BIN_SIZE = 0.1    # 10% of frame width
 
     def _tts_worker(self):
-        """별도 스레드에서 SAPI 엔진을 초기화하고 안내를 처리 (가장 확실한 윈도우 방식)"""
+        """별도 스레드에서 TTS 안내를 처리"""
+        # Windows용 (주석해제)
         pythoncom.CoInitialize()
         speaker = win32com.client.Dispatch("SAPI.SpVoice")
-        
+
+        # Mac용 (1줄) 현재 실행 중인 TTS 프로세스 
+        # current_process = None
+
         while True:
             # 큐에서 데이터를 가져옴 (텍스트, 강제중지여부, follow_up여부)
             item = self.speech_queue.get()
             if item is None: break
-            
+
             text, force_stop, is_follow_up = item
-            
+
             # 뮤트 상태면 무시 (단, 강제 종료 안내는 예외)
             if self.is_muted and not force_stop:
                 self.speech_queue.task_done()
                 continue
 
-            # 실시간 볼륨 적용
-            speaker.Volume = self.volume
+            # force_stop이 True이면 현재 말하고 있는 것을 중지
+            if force_stop and current_process and current_process.poll() is None:
+                current_process.terminate()
+                current_process = None
 
-            # force_stop이 True이면 현재 말하고 있는 것과 밀려있는 큐를 모두 무시하고 즉시 말함
-            # SAPI Flag: 2 (SVSFPurgeBeforeSpeak)
-            flags = 2 if force_stop else 0
-            
             print(f"[TTS 발화 시작] {text} (강제종료: {force_stop}, 후속: {is_follow_up})")
             try:
+                # Windows 전용 (주석해제)
+                speaker.Volume = self.volume
+                flags = 2 if force_stop else 0
                 speaker.Speak(text, flags)
+
+                # Mac용: say 명령어 사용
+                # 볼륨은 0~100을 0~1로 변환
+                # volume_normalized = self.volume / 100.0
+                # current_process = subprocess.Popen(
+                #     ['say', '-v', 'Yuna', '-r', '200', text],
+                #     stdout=subprocess.DEVNULL,
+                #     stderr=subprocess.DEVNULL
+                # )
+                # current_process.wait() # 여기까지 주석처리
+
             except Exception as e:
                 print(f"[TTS 오류] {e}")
             print(f"[TTS 발화 완료] {text}")
-            
-            # 후속 안내가 아니고, 강제 중지가 아니면 Manager에게 완료 신호
-            # (실제로는 speak() 호출 시 Manager를 호출하게 변경할 수 있음)
+
             self.speech_queue.task_done()
 
     def _stt_worker(self):
@@ -360,8 +389,99 @@ class MVPTestPipeline:
         if raw_val <= 0: return float('inf')
         meters = self.K_DEPTH / (raw_val + 1e-5)
         return meters
+    
+    # 모바일 카메라 및 음성
+    def process_web_frame(self, frame):
+        """웹에서 전송된 프레임을 처리하고 결과 이미지 반환"""
+        processed, _ = self.process_web_frame_with_speech(frame)
+        return processed
 
-    def run(self):
+    def process_web_frame_with_speech(self, frame):
+        """웹에서 전송된 프레임을 처리하고 결과 이미지와 음성 텍스트 반환"""
+        self.frame_count += 1
+        current_time = time.time()
+        speech_text = None
+
+        # YOLO 및 깊이 추정
+        if self.frame_count % self.frame_skip == 1 or self.last_depth_map is None:
+            self.last_objects = self.stage2_yolo_optimized(frame)
+            self.last_depth_map, self.last_depth_viz = self.stage3_depth_optimized(frame)
+
+        display_frame = frame.copy()
+        h, w = frame.shape[:2]
+        roi_left = int(w * self.roi_x_min)
+        roi_right = int(w * self.roi_x_max)
+
+        # ROI 가이드 라인
+        cv2.line(display_frame, (roi_left, 0), (roi_left, h), (0, 0, 255), 2)
+        cv2.line(display_frame, (roi_right, 0), (roi_right, h), (0, 0, 255), 2)
+
+        # 가장 가까운 물체 찾기
+        closest_obj = None
+        min_meters = float('inf')
+
+        for obj in self.last_objects:
+            b = obj['box']
+            cx = (b[0] + b[2]) // 2
+            cy = int(b[3] * 0.9)
+
+            if roi_left <= cx <= roi_right:
+                h_d, w_d = self.last_depth_map.shape
+                cx_d, cy_d = max(0, min(cx, w_d-1)), max(0, min(cy, h_d-1))
+                raw_val = self.last_depth_map[cy_d, cx_d]
+                meters = self.raw_to_meters(raw_val)
+
+                if meters < min_meters:
+                    min_meters = meters
+                    closest_obj = {
+                        'label': obj['label'],
+                        'box': b,
+                        'meters': meters,
+                        'cx': cx
+                    }
+
+        current_entities = set()
+        if closest_obj and min_meters < 10.0:
+            b = closest_obj['box']
+            label_name = closest_obj['label']
+            meters = closest_obj['meters']
+
+            dist_bin = int(meters / self.DIST_BIN_SIZE)
+            pos_bin = int((closest_obj['cx'] / w) / self.POS_BIN_SIZE)
+            entity_key = (label_name, dist_bin, pos_bin)
+            current_entities.add(entity_key)
+
+            # 시각화
+            cv2.rectangle(display_frame, (b[0], b[1]), (b[2], b[3]), (0, 0, 255), 3)
+            cv2.putText(display_frame, f"{label_name} {meters:.1f}m", (b[0], b[1]-10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+
+            # 음성 안내 (새로운 객체일 때만)
+            if entity_key not in self.announced_objects:
+                self.announced_objects[entity_key] = current_time
+
+                pos_desc = "정면"
+                if closest_obj['cx'] < roi_left + (roi_right - roi_left) * 0.3:
+                    pos_desc = "왼쪽"
+                elif closest_obj['cx'] > roi_left + (roi_right - roi_left) * 0.7:
+                    pos_desc = "오른쪽"
+
+                # 웹 모드: 음성 텍스트 반환
+                speech_text = f"{pos_desc} {meters:.1f}미터에 {label_name}"
+
+        # 오래된 객체 정리
+        for entity_key in list(self.announced_objects.keys()):
+            if entity_key not in current_entities:
+                if current_time - self.announced_objects[entity_key] > self.announce_timeout:
+                    del self.announced_objects[entity_key]
+
+        return display_frame, speech_text
+
+    def run(self, headless=False):
+        """
+        headless=True: GUI 없이 실행 (Mac 웹 모드용)
+        headless=False: GUI 창 표시 (Windows 또는 로컬 실행용)
+        """
         cap = cv2.VideoCapture(1) # 0은 내장카메라, 1은 외장카메라
         if not cap.isOpened():
             print("카메라를 열 수 없습니다.")
@@ -369,13 +489,17 @@ class MVPTestPipeline:
 
         window_name_main = "MVP Test - Color (YOLO)"
         window_name_depth = "MVP Test - Depth (MiDaS)"
-        cv2.namedWindow(window_name_main)
-        cv2.namedWindow(window_name_depth)
+
+        # GUI 모드일 때만 창 생성
+        if not headless:
+            cv2.namedWindow(window_name_main)
+            cv2.namedWindow(window_name_depth)
 
         print("\n=== 음성 안내(TTS)가 최적화된 MVP 파이프라인 시작 ===")
-        
-        # 시작 시 안내 음성 추가 (웹에서 다시 시작할 때도 나옴)
-        self.speak("보조 시스템 안내를 시작합니다.", force_stop=True)
+
+        # 시작 시 안내 음성 (웹 모드가 아닐 때만)
+        if not self.web_mode:
+            self.speak("보조 시스템 안내를 시작합니다.", force_stop=True)
 
         self.running = True
         last_log_time = 0
@@ -481,28 +605,31 @@ class MVPTestPipeline:
             if should_log:
                 last_log_time = current_time
 
-            # 화면 표시
-
-            # 화면 표시
             # 웹 스트리밍용으로 현재 프레임 저장
             with self.frame_lock:
                 self.last_web_frame = display_frame.copy()
 
-            cv2.imshow(window_name_main, display_frame)
-            if self.last_depth_viz is not None:
-                cv2.imshow(window_name_depth, self.last_depth_viz)
-            
-            # 종료 로직
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q') or key == 27: # Q나 ESC
-                break
-            
-            # 창이 닫혔는지 확인
-            if cv2.getWindowProperty(window_name_main, cv2.WND_PROP_VISIBLE) < 1:
-                break
+            # GUI 모드일 때만 화면 표시
+            if not headless:
+                cv2.imshow(window_name_main, display_frame)
+                if self.last_depth_viz is not None:
+                    cv2.imshow(window_name_depth, self.last_depth_viz)
+
+                # 종료 로직
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q') or key == 27: # Q나 ESC
+                    break
+
+                # 창이 닫혔는지 확인
+                if cv2.getWindowProperty(window_name_main, cv2.WND_PROP_VISIBLE) < 1:
+                    break
+            else:
+                # headless 모드에서는 CPU 부하 방지를 위해 짧은 대기
+                time.sleep(0.03)
 
         cap.release()
-        cv2.destroyAllWindows()
+        if not headless:
+            cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     pipeline = MVPTestPipeline()

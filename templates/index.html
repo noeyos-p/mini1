@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Blind Assistant Control</title>
     <style>
         body,
@@ -20,6 +20,9 @@
             cursor: pointer;
             -webkit-user-select: none;
             user-select: none;
+            /* 모바일 터치 최적화 */
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
         }
 
         #status-text {
@@ -44,39 +47,73 @@
             align-items: center;
         }
 
+        /* 서버 카메라용 (노트북) */
         #video-feed {
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
         }
+
+        /* 모바일 카메라용 */
+        #camera-preview {
+            display: none;
+        }
+
+        #processed-frame {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            display: none;
+        }
     </style>
 </head>
 
-<body onclick="togglePipeline()">
-    <div id="status-text">화면 아무 데나 클릭하면 시작합니다.</div>
+<!-- 기존 코드: onclick="togglePipeline()" -->
+<body onclick="handleScreenClick(event)">
+    <div id="status-text">화면을 두 번 터치하면 시작합니다.</div>
     <div id="video-container">
+        <!-- 서버 카메라용 (노트북) -->
         <img id="video-feed" src="">
+
+        <!-- 모바일 카메라용 -->
+        <video id="camera-preview" autoplay playsinline muted></video>
+        <canvas id="camera-canvas" style="display:none;"></canvas>
+        <img id="processed-frame" alt="처리된 영상">
     </div>
 
-    <!-- 마이크 없을 때를 위한 가상 음성 명령 버튼 -->
+    <!-- 음성 인식 버튼 -->
+    <!-- 변경: 한 번 클릭 = 설명, 더블클릭 = 기능 실행 -->
     <div id="debug-panel">
-        <button onclick="sendSimulatedCommand(event, '볼륨 올려')">🔊 볼륨 +</button>
-        <button onclick="sendSimulatedCommand(event, '볼륨 내려')">🔉 볼륨 -</button>
-        <button onclick="sendSimulatedCommand(event, '조용히 해')">🔇 조용히 해</button>
-        <button onclick="sendSimulatedCommand(event, '말해줘')">📢 말해줘</button>
-        <button onclick="sendSimulatedCommand(event, '종료해')" style="background: #D32F2F;">🛑 종료해</button>
+        <button id="mic-btn"
+            onclick="handleClick(event, '녹음 버튼입니다. 두 번 클릭하면 녹음을 시작하거나 중지합니다.', toggleRecording)"
+            style="background: #2196F3; font-size: 1.2rem; padding: 15px 25px;">
+            🎤 클릭하여 녹음
+        </button>
+        <button onclick="handleClick(event, '볼륨 올리기 버튼입니다.', function(e) { sendSimulatedCommand(e, '볼륨 올려'); })">🔊+</button>
+        <button onclick="handleClick(event, '볼륨 내리기 버튼입니다.', function(e) { sendSimulatedCommand(e, '볼륨 내려'); })">🔉-</button>
+        <button onclick="handleClick(event, '음소거 버튼입니다.', function(e) { sendSimulatedCommand(e, '음소거'); })">🔇</button>
+        <button onclick="handleClick(event, '말하기 버튼입니다. 현재 상태를 음성으로 안내합니다.', function(e) { sendSimulatedCommand(e, '말해줘'); })">📢</button>
+        <button onclick="handleClick(event, '종료 버튼입니다.', function(e) { sendSimulatedCommand(e, '종료해'); })"
+            style="background: #D32F2F;">🛑</button>
     </div>
 
     <style>
+        /* 기존 코드: left, transform 없음 */
         #debug-panel {
             position: absolute;
             bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
             display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
             gap: 10px;
             z-index: 100;
             background: rgba(0, 0, 0, 0.7);
             padding: 15px;
             border-radius: 15px;
+            max-width: 90vw;
+            box-sizing: border-box;
         }
 
         #debug-panel button {
@@ -87,10 +124,63 @@
             color: white;
             cursor: pointer;
             font-size: 0.9rem;
+            /* 모바일 터치 최적화 */
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            min-width: 44px;
+            min-height: 44px;
         }
 
+        /* 기존 코드: hover만 있었음 */
         #debug-panel button:hover {
             background: #555;
+        }
+
+        /* 모바일 터치 피드백 */
+        #debug-panel button:active {
+            background: #666;
+            transform: scale(0.95);
+        }
+
+        /* 모바일 반응형 스타일 */
+        @media screen and (max-width: 600px) {
+            #status-text {
+                font-size: 1.1rem;
+                padding: 8px 12px;
+                max-width: 90vw;
+            }
+
+            #debug-panel {
+                bottom: 10px;
+                padding: 10px;
+                gap: 8px;
+            }
+
+            #debug-panel button {
+                padding: 12px 16px;
+                font-size: 1.1rem;
+                min-width: 50px;
+                min-height: 50px;
+            }
+
+            #mic-btn {
+                width: 100%;
+                padding: 15px 20px !important;
+                font-size: 1.1rem !important;
+            }
+        }
+
+        /* 작은 모바일 화면 */
+        @media screen and (max-width: 380px) {
+            #debug-panel {
+                gap: 6px;
+                padding: 8px;
+            }
+
+            #debug-panel button {
+                padding: 10px 12px;
+                font-size: 1rem;
+            }
         }
     </style>
 
@@ -100,7 +190,186 @@
         const videoContainer = document.getElementById('video-container');
         const videoFeed = document.getElementById('video-feed');
 
+        // 모바일 카메라용 요소
+        const cameraPreview = document.getElementById('camera-preview');
+        const cameraCanvas = document.getElementById('camera-canvas');
+        const processedFrame = document.getElementById('processed-frame');
+        const canvasCtx = cameraCanvas.getContext('2d');
+
+        // 카메라 스트림 변수
+        let cameraStream = null;
+        let frameInterval = null;
+
+        // 클릭 처리를 위한 변수
+        let clickTimer = null;
+        let screenClickTimer = null;
+        const DOUBLE_CLICK_DELAY = 400; // 더블클릭 감지 시간 (ms)
+
+        // 화면 클릭 처리 (한 번: 안내, 두 번: 시작/정지)
+        function handleScreenClick(event) {
+            if (screenClickTimer) {
+                // 더블클릭: 타이머 취소하고 기능 실행
+                clearTimeout(screenClickTimer);
+                screenClickTimer = null;
+                window.speechSynthesis.cancel();
+                togglePipeline();
+            } else {
+                // 첫 번째 클릭: 타이머 설정
+                screenClickTimer = setTimeout(function() {
+                    // 싱글클릭: 현재 상태에 따른 안내
+                    if (isRunning) {
+                        speakDescription('현재 작동 중입니다. 두 번 클릭하면 정지합니다.');
+                    } else {
+                        speakDescription('현재 정지 상태입니다. 두 번 클릭하면 시작합니다.');
+                    }
+                    screenClickTimer = null;
+                }, DOUBLE_CLICK_DELAY);
+            }
+        }
+
+        // 버튼 클릭 처리 (한 번: 설명, 두 번: 기능 실행)
+        function handleClick(event, description, actionFunc) {
+            event.stopPropagation();
+
+            if (clickTimer) {
+                // 더블클릭: 타이머 취소하고 기능 실행
+                clearTimeout(clickTimer);
+                clickTimer = null;
+                // 기존 음성 중지
+                window.speechSynthesis.cancel();
+                // 기능 실행
+                if (actionFunc) actionFunc(event);
+            } else {
+                // 첫 번째 클릭: 타이머 설정
+                clickTimer = setTimeout(function() {
+                    // 싱글클릭: 설명 읽어주기
+                    speakDescription(description);
+                    clickTimer = null;
+                }, DOUBLE_CLICK_DELAY);
+            }
+        }
+
+        // 음성 안내 함수 (TTS)
+        function speakDescription(text) {
+            // 기존 음성 중지
+            window.speechSynthesis.cancel();
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'ko-KR';
+            utterance.rate = 1.0;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // 모바일 여부 확인
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+        // 페이지 로드 시 안내
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                if (isMobile) {
+                    speakDescription('시각장애인 보조 서비스입니다. 버튼을 한 번 터치하면 설명을, 두 번 터치하면 기능을 실행합니다.');
+                } else {
+                    speakDescription('시각장애인 보조 서비스입니다. 탭 키로 버튼을 이동하며 각 버튼의 설명을 들을 수 있습니다.');
+                }
+            }, 1000);
+        });
+
+        // 기존 코드: 더블탭 확대 방지 (클릭 이벤트 충돌로 제거)
+        // CSS touch-action: manipulation으로 대체
+
+        // 모바일 카메라 시작
+        async function startCamera() {
+            try {
+                // 후면 카메라 우선 사용 (모바일)
+                const constraints = {
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                };
+
+                cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+                cameraPreview.srcObject = cameraStream;
+
+                // 비디오 로드 후 캔버스 크기 설정
+                cameraPreview.onloadedmetadata = () => {
+                    cameraCanvas.width = cameraPreview.videoWidth;
+                    cameraCanvas.height = cameraPreview.videoHeight;
+                    // 프레임 전송 시작
+                    startFrameCapture();
+                };
+
+                return true;
+            } catch (error) {
+                console.error('카메라 접근 오류:', error);
+                statusText.textContent = '카메라 권한을 허용해주세요';
+                return false;
+            }
+        }
+
+        // 카메라 중지
+        function stopCamera() {
+            if (frameInterval) {
+                clearInterval(frameInterval);
+                frameInterval = null;
+            }
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+            cameraPreview.srcObject = null;
+        }
+
+        // 프레임 캡처 및 서버 전송 시작
+        function startFrameCapture() {
+            // 기존 코드: 초당 10프레임 (100ms) - ngrok 한도 초과
+            // 변경: 초당 3프레임 (333ms) - ngrok 무료 한도 내
+            frameInterval = setInterval(captureAndSendFrame, 333);
+        }
+
+        // 프레임 캡처 및 전송
+        async function captureAndSendFrame() {
+            if (!isRunning || !cameraStream) return;
+
+            // 캔버스에 현재 프레임 그리기
+            canvasCtx.drawImage(cameraPreview, 0, 0);
+
+            // JPEG로 변환
+            const blob = await new Promise(resolve => {
+                cameraCanvas.toBlob(resolve, 'image/jpeg', 0.7);
+            });
+
+            // 서버로 전송
+            try {
+                const formData = new FormData();
+                formData.append('frame', blob, 'frame.jpg');
+
+                const response = await fetch('/process_frame', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    // 기존 코드: blob으로 받아서 표시
+                    // 변경: JSON으로 받아서 이미지 + 음성 처리
+                    const data = await response.json();
+
+                    // 처리된 이미지 표시
+                    processedFrame.src = 'data:image/jpeg;base64,' + data.image;
+
+                    // 음성 안내 (텍스트가 있으면 TTS 실행)
+                    if (data.speech && data.speech.length > 0) {
+                        speakDescription(data.speech);
+                    }
+                }
+            } catch (error) {
+                console.error('프레임 전송 오류:', error);
+            }
+        }
+
         async function togglePipeline() {
+            // 기존 코드: 서버 파이프라인 시작/중지
             const endpoint = isRunning ? '/stop' : '/start';
             const method = 'POST';
 
@@ -110,20 +379,35 @@
 
                 if (data.status === 'started' || data.status === 'already_running') {
                     isRunning = true;
-                    statusText.innerHTML = "작동 중... 다시 클릭하면 정지합니다.";
+                    statusText.innerHTML = "작동 중... 두 번 터치하면 정지합니다.";
                     statusText.style.color = "#4CAF50";
-
-                    // 비디오 피드 활성화 (캐시 방지를 위해 타임스탬프 추가)
-                    videoFeed.src = "/video_feed?t=" + new Date().getTime();
                     videoContainer.style.display = "flex";
+
+                    if (isMobile) {
+                        // 모바일: 클라이언트 카메라 사용
+                        const cameraStarted = await startCamera();
+                        if (!cameraStarted) return;
+                        videoFeed.style.display = "none";
+                        processedFrame.style.display = "block";
+                    } else {
+                        // 노트북: 서버 카메라 사용
+                        videoFeed.src = "/video_feed?t=" + new Date().getTime();
+                        videoFeed.style.display = "block";
+                        processedFrame.style.display = "none";
+                    }
                 } else {
                     isRunning = false;
-                    statusText.innerHTML = "정지됨. 다시 클릭하면 시작합니다.";
+                    statusText.innerHTML = "정지됨. 두 번 터치하면 시작합니다.";
                     statusText.style.color = "#FF5252";
-
-                    // 비디오 피드 비활성화
-                    videoFeed.src = "";
                     videoContainer.style.display = "none";
+
+                    if (isMobile) {
+                        // 모바일: 카메라 중지
+                        stopCamera();
+                    } else {
+                        // 노트북: 비디오 피드 비활성화
+                        videoFeed.src = "";
+                    }
                 }
             } catch (error) {
                 console.error("Error toggling pipeline:", error);
@@ -145,6 +429,106 @@
             } catch (error) {
                 console.error("Error sending command:", error);
             }
+        }
+
+        // 음성 녹음 관련 변수
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let audioStream = null;
+        let isRecording = false; // 녹음 상태 추적
+        const micBtn = document.getElementById('mic-btn');
+
+        // 페이지 로드 시 마이크 권한 요청
+        // 기존 코드: 매번 alert 표시
+        async function initMicrophone() {
+            // 이미 스트림이 있고 활성화 상태면 재사용
+            if (audioStream && audioStream.active) {
+                console.log('기존 스트림 재사용');
+                return true;
+            }
+
+            try {
+                audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                console.log('마이크 권한 획득 완료');
+                return true;
+            } catch (error) {
+                console.error('마이크 접근 오류:', error);
+                statusText.textContent = '마이크 권한을 허용해주세요';
+                return false;
+            }
+        }
+
+        // 페이지 로드 시 마이크 초기화
+        initMicrophone();
+
+        // 녹음 토글 (클릭할 때마다 시작/중지)
+        async function toggleRecording(event) {
+            if (event) event.stopPropagation();
+
+            if (isRecording) {
+                // 녹음 중지
+                stopRecording();
+            } else {
+                // 녹음 시작
+                await startRecording();
+            }
+        }
+
+        // 녹음 시작
+        // 기존 코드: onmousedown 이벤트에서 호출, 매번 initMicrophone 호출
+        async function startRecording() {
+            // 스트림이 없거나 비활성화면 메시지만 표시
+            if (!audioStream || !audioStream.active) {
+                statusText.textContent = '마이크 권한이 필요합니다. 페이지를 새로고침하세요.';
+                return;
+            }
+
+            try {
+                mediaRecorder = new MediaRecorder(audioStream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (e) => {
+                    audioChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    // 녹음된 오디오를 서버로 전송
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const formData = new FormData();
+                    formData.append('audio', audioBlob, 'recording.webm');
+
+                    try {
+                        statusText.textContent = '음성 인식 중...';
+                        const response = await fetch('/voice', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const data = await response.json();
+                        console.log('음성 인식 결과:', data.text);
+                        statusText.textContent = '인식: ' + data.text;
+                    } catch (error) {
+                        console.error('음성 전송 오류:', error);
+                    }
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                micBtn.style.background = '#F44336';
+                micBtn.textContent = '🔴 녹음 중지';
+            } catch (error) {
+                console.error('녹음 시작 오류:', error);
+            }
+        }
+
+        // 녹음 중지
+        // 기존 코드: onmouseup 이벤트에서 호출
+        function stopRecording() {
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+            mediaRecorder.stop();
+            isRecording = false;
+            micBtn.style.background = '#2196F3';
+            micBtn.textContent = '🎤 클릭하여 녹음';
         }
     </script>
 </body>

@@ -1,16 +1,26 @@
-from fastapi import FastAPI, Request
+# import os
+# os.environ['OPENCV_AVFOUNDATION_SKIP_AUTH'] = '1'
+# Mac 카메라권한 문제 관해 환경변수 추가 (Windows 주석처리)
+
+from fastapi import FastAPI, Request, File, UploadFile, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
+import numpy as np
 from fastapi.templating import Jinja2Templates
 from test_pipeline import MVPTestPipeline
 import threading
 import uvicorn
-import os
 import cv2
 import time
+import tempfile
+import whisper
 from contextlib import asynccontextmanager
 
+# Whisper 모델 로드 (웹 음성인식용)
+whisper_model = whisper.load_model("tiny")
+
 # 글로벌 파이프라인 인스턴스
-pipeline = MVPTestPipeline()
+# 변경: 웹 모드로 생성 (서버 STT/TTS 비활성화)
+pipeline = MVPTestPipeline(web_mode=True)
 pipeline_thread = None
 
 @asynccontextmanager
@@ -42,10 +52,10 @@ def generate_frames():
                 # 이미지를 JPEG로 변환
                 ret, buffer = cv2.imencode('.jpg', pipeline.last_web_frame)
                 frame = buffer.tobytes()
-            
+
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            
+
             # FPS 조절 (너무 빠르면 CPU 부하)
             time.sleep(0.04)
         else:
@@ -64,7 +74,12 @@ async def start_pipeline():
     global pipeline_thread
     if not pipeline.running:
         print("[Web] 파이프라인 시작 요청")
+        # Window cv2 사용가능 (주석해제)
         pipeline_thread = threading.Thread(target=pipeline.run, daemon=True)
+
+        # Mac에서 스레드 내 cv2 창 불가로 headless=True 사용
+        # pipeline_thread = threading.Thread(target=lambda: pipeline.run(headless=True), daemon=True)
+
         pipeline_thread.start()
         return {"status": "started"}
     return {"status": "already_running"}
@@ -86,6 +101,61 @@ async def stop_pipeline():
         pipeline.speak("시스템을 정지합니다.", force_stop=True)
         return {"status": "stopped"}
     return {"status": "already_stopped"}
+
+@app.post("/voice")
+async def voice_recognition(audio: UploadFile = File(...)):
+    # 웹에서 녹음된 음성 파일을 받아서 Whisper로 인식
+    try:
+        # 임시 파일로 저장
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
+            content = await audio.read()
+            f.write(content)
+            temp_path = f.name
+
+        # Whisper로 음성 인식
+        result = whisper_model.transcribe(temp_path, language="ko", fp16=False)
+        text = result["text"].strip()
+
+        # 임시 파일 삭제
+        os.unlink(temp_path)
+
+        print(f"[Web] 음성 인식 결과: {text}")
+
+        # 명령어 처리
+        if text:
+            pipeline.handle_command(text)
+
+        return {"status": "success", "text": text}
+    except Exception as e:
+        print(f"[Web] 음성 인식 오류: {e}")
+        return {"status": "error", "text": str(e)}
+
+# 모바일 카메라 프레임 처리 엔드포인트
+@app.post("/process_frame")
+async def process_frame(frame: UploadFile = File(...)):
+    try:
+        # 이미지 데이터 읽기
+        contents = await frame.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if img is None:
+            return Response(content=b'', status_code=400)
+
+        # 파이프라인으로 프레임 처리 (YOLO 등)
+        # 변경: 음성 안내 텍스트도 함께 반환
+        processed_img, speech_text = pipeline.process_web_frame_with_speech(img)
+
+        # JPEG로 인코딩
+        _, buffer = cv2.imencode('.jpg', processed_img)
+        img_base64 = __import__('base64').b64encode(buffer).decode('utf-8')
+
+        # JSON으로 이미지와 음성 텍스트 반환
+        return {"image": img_base64, "speech": speech_text}
+
+    except Exception as e:
+        print(f"[Web] 프레임 처리 오류: {e}")
+        return Response(content=b'', status_code=500)
 
 if __name__ == "__main__":
     # 템플릿 디렉토리가 없으면 생성
