@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blind Assistant Control</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #121212;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        #status-text {
+            color: white;
+            font-family: sans-serif;
+            font-size: 1.5rem;
+            text-align: center;
+            pointer-events: none;
+            position: absolute;
+            top: 20px;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 10px;
+        }
+
+        #video-container {
+            width: 100%;
+            height: 100%;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #video-feed {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+    </style>
+</head>
+
+<body onclick="togglePipeline()">
+    <div id="status-text">화면 아무 데나 클릭하면 시작합니다.</div>
+    <div id="video-container">
+        <img id="video-feed" src="">
+    </div>
+
+    <!-- 마이크 없을 때를 위한 가상 음성 명령 버튼 -->
+    <div id="debug-panel">
+        <button onclick="sendSimulatedCommand(event, '볼륨 올려')">🔊 볼륨 +</button>
+        <button onclick="sendSimulatedCommand(event, '볼륨 내려')">🔉 볼륨 -</button>
+        <button onclick="sendSimulatedCommand(event, '조용히 해')">🔇 조용히 해</button>
+        <button onclick="sendSimulatedCommand(event, '말해줘')">📢 말해줘</button>
+        <button onclick="sendSimulatedCommand(event, '종료해')" style="background: #D32F2F;">🛑 종료해</button>
+    </div>
+
+    <style>
+        #debug-panel {
+            position: absolute;
+            bottom: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 15px;
+        }
+
+        #debug-panel button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 8px;
+            background: #333;
+            color: white;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        #debug-panel button:hover {
+            background: #555;
+        }
+    </style>
+
+    <script>
+        let isRunning = false;
+        const statusText = document.getElementById('status-text');
+        const videoContainer = document.getElementById('video-container');
+        const videoFeed = document.getElementById('video-feed');
+
+        async function togglePipeline() {
+            const endpoint = isRunning ? '/stop' : '/start';
+            const method = 'POST';
+
+            try {
+                const response = await fetch(endpoint, { method });
+                const data = await response.json();
+
+                if (data.status === 'started' || data.status === 'already_running') {
+                    isRunning = true;
+                    statusText.innerHTML = "작동 중... 다시 클릭하면 정지합니다.";
+                    statusText.style.color = "#4CAF50";
+
+                    // 비디오 피드 활성화 (캐시 방지를 위해 타임스탬프 추가)
+                    videoFeed.src = "/video_feed?t=" + new Date().getTime();
+                    videoContainer.style.display = "flex";
+                } else {
+                    isRunning = false;
+                    statusText.innerHTML = "정지됨. 다시 클릭하면 시작합니다.";
+                    statusText.style.color = "#FF5252";
+
+                    // 비디오 피드 비활성화
+                    videoFeed.src = "";
+                    videoContainer.style.display = "none";
+                }
+            } catch (error) {
+                console.error("Error toggling pipeline:", error);
+                alert("연결 오류가 발생했습니다.");
+            }
+        }
+
+        async function sendSimulatedCommand(event, commandText) {
+            // 이벤트 전파 방지 (body의 togglePipeline이 실행되지 않게 함)
+            if (event) event.stopPropagation();
+
+            try {
+                await fetch('/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: commandText })
+                });
+                console.log("Simulated command sent:", commandText);
+            } catch (error) {
+                console.error("Error sending command:", error);
+            }
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,10 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Models / large files
+model-ko/
+yolov8n.pt
+
+# Environment
+.env

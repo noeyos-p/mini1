@@ -1,0 +1,19 @@
+# FastAPI and Web Server
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+
+# ML/NLP Libraries
+torch
+transformers
+sentence-transformers
+scikit-learn
+numpy
+
+# Image Processing
+mediapipe
+opencv-python
+insightface
+onnxruntime
+
