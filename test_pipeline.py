@@ -106,7 +106,7 @@ class FollowUpManager:
 WHISPER_AVAILABLE = False
 PYAUDIO_AVAILABLE = False
 try:
-    from faster_whisper import WhisperModel
+    import whisper  # openai-whisper
     import pyaudio
     WHISPER_AVAILABLE = True
     PYAUDIO_AVAILABLE = True
@@ -147,10 +147,10 @@ class MVPTestPipeline:
         self.stt_thread = None
         if not web_mode and WHISPER_AVAILABLE and PYAUDIO_AVAILABLE:
             try:
-                # Whisper 'base' 모델 로딩 (CPU 사용 시 최적화)
-                # 다국어 모델이므로 언어를 ko로 고정하면 더 정확함
-                print("Whisper 'base' 모델 로딩 중...")
-                self.whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+                # Whisper 모델 로딩
+                print("Whisper 'tiny' 모델 로딩 중...")
+                # self.whisper_model = whisper.load_model("base")
+                self.whisper_model = whisper.load_model("tiny")  # 빠른 처리
                 self.stt_thread = threading.Thread(target=self._stt_worker, daemon=True)
                 self.stt_thread.start()
             except Exception as e:
@@ -266,82 +266,85 @@ class MVPTestPipeline:
             self.speech_queue.task_done()
 
     def _stt_worker(self):
-        """마이크 소리를 듣고 Whisper로 인식하는 스레드 (VAD 포함)"""
-        CHUNK = 1024
-        FORMAT = pyaudio.paInt16
-        CHANNELS = 1
-        RATE = 16000
-        SILENCE_THRESHOLD = 500  # 음성 감지 임계값 (환경에 따라 조절 필요)
-        SILENCE_DURATION = 1.0   # 침묵 시간 (초)
+        """마이크 소리를 듣고 명령어를 인식하는 스레드 (엔터 키 방식)"""
+        # Whisper
+        import tempfile
+        import wave
 
         p = pyaudio.PyAudio()
-        stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
-        stream.start_stream()
+        stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=1024)
 
-        print("🎙️ Whisper STT 준비 완료. 명령을 기다립니다...")
-
-        audio_buffer = []
-        is_speaking = False
-        silence_start = None
+        print("🎙️ 음성 인식 준비 완료.")
+        print("📢 [엔터]를 누르면 3초간 녹음을 시작합니다.")
 
         while True:
-            data = stream.read(CHUNK, exception_on_overflow=False)
-            audio_data = np.frombuffer(data, dtype=np.int16)
-            amplitude = np.abs(audio_data).mean()
+            # 엔터 입력 대기
+            input("🎤 녹음하려면 [엔터]를 누르세요...")
 
-            if amplitude > SILENCE_THRESHOLD:
-                if not is_speaking:
-                    is_speaking = True
-                    print("🗣️ 말하는 중...")
-                audio_buffer.append(audio_data)
-                silence_start = None
-            else:
-                if is_speaking:
-                    if silence_start is None:
-                        silence_start = time.time()
-                    
-                    audio_buffer.append(audio_data)
+            print("🔴 녹음 중... (3초)")
 
-                    # 일정 시간 이상 침묵 시 인식 시작
-                    if time.time() - silence_start > SILENCE_DURATION:
-                        print("⌛ 인식 중...")
-                        # 오디오 데이터를 Whisper 형식으로 변환 (float32, 16kHz)
-                        full_audio = np.concatenate(audio_buffer).astype(np.float32) / 32768.0
-                        
-                        segments, info = self.whisper_model.transcribe(full_audio, language="ko", beam_size=5)
-                        text = "".join([segment.text for segment in segments]).strip()
-                        
-                        if text:
-                            print(f"👂 Whisper 결과: {text}")
-                            self.handle_command(text)
-                        
-                        # 버퍼 및 상태 초기화
-                        audio_buffer = []
-                        is_speaking = False
-                        silence_start = None
+            # 3초간 녹음
+            frames = []
+            for _ in range(0, int(16000 / 1024 * 3)):
+                data = stream.read(1024, exception_on_overflow=False)
+                frames.append(data)
+
+            print("⌛ 인식 중...")
+
+            # 임시 파일로 저장
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                wf = wave.open(f.name, 'wb')
+                wf.setnchannels(1)
+                wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
+                wf.setframerate(16000)
+                wf.writeframes(b''.join(frames))
+                wf.close()
+
+                # Whisper로 인식
+                # fp16=False: CPU에서 FP16 미지원 경고 제거
+                result = self.whisper_model.transcribe(f.name, language="ko", fp16=False)
+                text = result["text"].replace(" ", "")
+
+                os.unlink(f.name)
+
+            if not text:
+                print("❌ 인식된 음성이 없습니다.")
+                continue
+
+            print(f"✅ 음성 인식 결과: {text}")
+            self.handle_command(text)
 
     def handle_command(self, text):
         """음성 인식을 통해 들어온 텍스트를 분석하여 명령 수행"""
         # 명령어 판별 (공백 제거 후 비교)
         text = text.replace(" ", "")
-        
+        response_text = None  # 웹 모드용 응답 텍스트
+
         if "종료" in text:
-            self.speak("시스템을 종료합니다.", force_stop=True)
+            response_text = "시스템을 종료합니다."
+            self.speak(response_text, force_stop=True)
             self.running = False
         elif "다시시작" in text or "다시실행" in text:
-            self.speak("시스템을 다시 시작합니다.", force_stop=True)
+            response_text = "시스템을 다시 시작합니다."
+            self.speak(response_text, force_stop=True)
         elif "볼륨올려" in text:
             self.volume = min(100, self.volume + 20)
-            self.speak(f"볼륨을 올렸습니다. 현재 볼륨 {self.volume}")
+            response_text = f"볼륨을 올렸습니다. 현재 볼륨 {self.volume}"
+            self.speak(response_text)
         elif "볼륨내려" in text:
             self.volume = max(0, self.volume - 20)
-            self.speak(f"볼륨을 내렸습니다. 현재 볼륨 {self.volume}")
+            response_text = f"볼륨을 내렸습니다. 현재 볼륨 {self.volume}"
+            self.speak(response_text)
         elif "조용히해" in text or "정지해" in text:
             self.is_muted = True
-            self.speak("음성 안내를 일시 정지합니다.", force_stop=True)
+            response_text = "음성 안내를 일시 정지합니다."
+            self.speak(response_text, force_stop=True)
         elif "말해줘" in text or "다시말해" in text:
             self.is_muted = False
-            self.speak("음성 안내를 다시 시작합니다.")
+            response_text = "음성 안내를 다시 시작합니다."
+            self.speak(response_text)
+
+        return response_text  # 웹 모드에서 클라이언트로 전달
 
     def speak(self, text, force_stop=False, is_follow_up=False):
         """안내 문구를 큐에 추가 (비동기)"""
@@ -488,8 +491,8 @@ class MVPTestPipeline:
             cv2.putText(display_frame, f"{label_name} {meters:.1f}m", (b[0], b[1]-10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-            # 음성 안내 (새로운 객체일 때만)
-            if entity_key not in self.announced_objects:
+            # 음성 안내 (새로운 객체일 때만, 뮤트 상태 아닐 때만)
+            if entity_key not in self.announced_objects and not self.is_muted:
                 self.announced_objects[entity_key] = current_time
 
                 pos_desc = "정면"
@@ -506,18 +509,19 @@ class MVPTestPipeline:
                 )
                 llm_thread.start()
 
-            # 캐시된 LLM 응답 확인
-            with self.cache_lock:
-                if entity_key in self.web_speech_cache:
-                    speech_text = self.web_speech_cache[entity_key]
-                else:
-                    # 캐시 없으면 기본 텍스트 (LLM 생성 중)
-                    pos_desc = "정면"
-                    if closest_obj['cx'] < roi_left + (roi_right - roi_left) * 0.3:
-                        pos_desc = "왼쪽"
-                    elif closest_obj['cx'] > roi_left + (roi_right - roi_left) * 0.7:
-                        pos_desc = "오른쪽"
-                    speech_text = f"{pos_desc} {meters:.1f}미터에 {label_name}"
+            # 캐시된 LLM 응답 확인 (뮤트 상태 아닐 때만)
+            if not self.is_muted:
+                with self.cache_lock:
+                    if entity_key in self.web_speech_cache:
+                        speech_text = self.web_speech_cache[entity_key]
+                    else:
+                        # 캐시 없으면 기본 텍스트 (LLM 생성 중)
+                        pos_desc = "정면"
+                        if closest_obj['cx'] < roi_left + (roi_right - roi_left) * 0.3:
+                            pos_desc = "왼쪽"
+                        elif closest_obj['cx'] > roi_left + (roi_right - roi_left) * 0.7:
+                            pos_desc = "오른쪽"
+                        speech_text = f"{pos_desc} {meters:.1f}미터에 {label_name}"
 
         # 오래된 객체 정리
         for entity_key in list(self.announced_objects.keys()):

@@ -89,8 +89,8 @@ async def process_command(request: Request):
     data = await request.json()
     text = data.get("text", "")
     print(f"[Web Test] 가상 음성 명령: {text}")
-    pipeline.handle_command(text)
-    return {"status": "command_processed", "text": text}
+    response_text = pipeline.handle_command(text)
+    return {"status": "command_processed", "text": text, "response": response_text}
 
 @app.post("/stop")
 async def stop_pipeline():
@@ -122,10 +122,11 @@ async def voice_recognition(audio: UploadFile = File(...)):
         print(f"[Web] 음성 인식 결과: {text}")
 
         # 명령어 처리
+        response_text = None
         if text:
-            pipeline.handle_command(text)
+            response_text = pipeline.handle_command(text)
 
-        return {"status": "success", "text": text}
+        return {"status": "success", "text": text, "response": response_text}
     except Exception as e:
         print(f"[Web] 음성 인식 오류: {e}")
         return {"status": "error", "text": str(e)}
@@ -161,4 +162,5 @@ if __name__ == "__main__":
     # 템플릿 디렉토리가 없으면 생성
     if not os.path.exists("templates"):
         os.makedirs("templates")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # log_level="warning"으로 INFO 로그 숨김
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
