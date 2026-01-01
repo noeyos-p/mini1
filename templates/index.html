@@ -45,6 +45,7 @@
             display: none;
             justify-content: center;
             align-items: center;
+            position: relative;
         }
 
         /* 서버 카메라용 (노트북) */
@@ -57,6 +58,22 @@
         /* 모바일 카메라용 */
         #camera-preview {
             display: none;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        /* AI 결과 오버레이용 캔버스 */
+        #overlay-canvas {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+            pointer-events: none;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
         }
 
         #processed-frame {
@@ -77,8 +94,9 @@
 
         <!-- 모바일 카메라용 -->
         <video id="camera-preview" autoplay playsinline muted></video>
+        <canvas id="overlay-canvas"></canvas>
         <canvas id="camera-canvas" style="display:none;"></canvas>
-        <img id="processed-frame" alt="처리된 영상">
+        <img id="processed-frame" alt="처리된 영상" style="display:none;">
     </div>
 
     <!-- 음성 인식 버튼 -->
@@ -193,12 +211,15 @@
         // 모바일 카메라용 요소
         const cameraPreview = document.getElementById('camera-preview');
         const cameraCanvas = document.getElementById('camera-canvas');
+        const overlayCanvas = document.getElementById('overlay-canvas');
         const processedFrame = document.getElementById('processed-frame');
         const canvasCtx = cameraCanvas.getContext('2d');
+        const overlayCtx = overlayCanvas.getContext('2d');
 
         // 카메라 스트림 변수
         let cameraStream = null;
         let frameInterval = null;
+        let isProcessing = false;  // 프레임 처리 중 플래그
 
         // 클릭 처리를 위한 변수
         let clickTimer = null;
@@ -296,6 +317,8 @@
                 cameraPreview.onloadedmetadata = () => {
                     cameraCanvas.width = cameraPreview.videoWidth;
                     cameraCanvas.height = cameraPreview.videoHeight;
+                    overlayCanvas.width = cameraPreview.videoWidth;
+                    overlayCanvas.height = cameraPreview.videoHeight;
                     // 프레임 전송 시작
                     startFrameCapture();
                 };
@@ -321,27 +344,77 @@
             cameraPreview.srcObject = null;
         }
 
+        // 오버레이에 감지 결과 그리기
+        function drawDetection(detection, frameSize) {
+            // 캔버스 초기화
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+            if (!detection) {
+                console.log('[Overlay] 감지된 객체 없음');
+                return;
+            }
+
+            console.log('[Overlay] 박스 그리기:', detection);
+
+            const { box, label, distance, roi } = detection;
+            const [x1, y1, x2, y2] = box;
+            const [roiLeft, roiRight] = roi;
+
+            // 서버 프레임 크기 기준으로 스케일 조정
+            const scaleX = overlayCanvas.width / frameSize.width;
+            const scaleY = overlayCanvas.height / frameSize.height;
+
+            console.log(`[Overlay] Scale: ${scaleX.toFixed(2)} x ${scaleY.toFixed(2)}`);
+
+            // ROI 가이드 라인
+            overlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+            overlayCtx.lineWidth = 2;
+            overlayCtx.beginPath();
+            overlayCtx.moveTo(roiLeft * scaleX, 0);
+            overlayCtx.lineTo(roiLeft * scaleX, overlayCanvas.height);
+            overlayCtx.moveTo(roiRight * scaleX, 0);
+            overlayCtx.lineTo(roiRight * scaleX, overlayCanvas.height);
+            overlayCtx.stroke();
+
+            // 감지 박스
+            overlayCtx.strokeStyle = 'rgba(255, 0, 0, 1)';
+            overlayCtx.lineWidth = 3;
+            overlayCtx.strokeRect(x1 * scaleX, y1 * scaleY, (x2 - x1) * scaleX, (y2 - y1) * scaleY);
+
+            // 레이블
+            overlayCtx.fillStyle = 'rgba(255, 0, 0, 1)';
+            overlayCtx.font = '20px Arial';
+            overlayCtx.fillText(`${label} ${distance}m`, x1 * scaleX, (y1 - 10) * scaleY);
+        }
+
         // 프레임 캡처 및 서버 전송 시작
         function startFrameCapture() {
-            // 기존 코드: 초당 10프레임 (100ms) - ngrok 한도 초과
-            // 변경: 초당 3프레임 (333ms) - ngrok 무료 한도 내
-            frameInterval = setInterval(captureAndSendFrame, 333);
+            // 변경: 초당 5프레임 (200ms) - cloudflared 사용으로 한도 없음
+            frameInterval = setInterval(captureAndSendFrame, 200);
         }
 
         // 프레임 캡처 및 전송
         async function captureAndSendFrame() {
             if (!isRunning || !cameraStream) return;
 
-            // 캔버스에 현재 프레임 그리기
-            canvasCtx.drawImage(cameraPreview, 0, 0);
+            // 이전 요청이 아직 처리 중이면 건너뛰기
+            if (isProcessing) {
+                console.log('프레임 처리 중... 건너뜀');
+                return;
+            }
 
-            // JPEG로 변환
-            const blob = await new Promise(resolve => {
-                cameraCanvas.toBlob(resolve, 'image/jpeg', 0.7);
-            });
+            isProcessing = true;
 
-            // 서버로 전송
             try {
+                // 캔버스에 현재 프레임 그리기
+                canvasCtx.drawImage(cameraPreview, 0, 0);
+
+                // JPEG로 변환
+                const blob = await new Promise(resolve => {
+                    cameraCanvas.toBlob(resolve, 'image/jpeg', 0.7);
+                });
+
+                // 서버로 전송
                 const formData = new FormData();
                 formData.append('frame', blob, 'frame.jpg');
 
@@ -351,12 +424,12 @@
                 });
 
                 if (response.ok) {
-                    // 기존 코드: blob으로 받아서 표시
-                    // 변경: JSON으로 받아서 이미지 + 음성 처리
                     const data = await response.json();
 
-                    // 처리된 이미지 표시
-                    processedFrame.src = 'data:image/jpeg;base64,' + data.image;
+                    console.log('[Frame] 서버 응답:', data);
+
+                    // 감지 결과를 오버레이에 그리기
+                    drawDetection(data.detection, data.frame_size);
 
                     // 음성 안내 (텍스트가 있으면 TTS 실행)
                     if (data.speech && data.speech.length > 0) {
@@ -365,6 +438,8 @@
                 }
             } catch (error) {
                 console.error('프레임 전송 오류:', error);
+            } finally {
+                isProcessing = false;
             }
         }
 
@@ -384,16 +459,18 @@
                     videoContainer.style.display = "flex";
 
                     if (isMobile) {
-                        // 모바일: 클라이언트 카메라 사용
+                        // 모바일: 클라이언트 카메라 사용 (실시간 영상 + 오버레이)
                         const cameraStarted = await startCamera();
                         if (!cameraStarted) return;
                         videoFeed.style.display = "none";
-                        processedFrame.style.display = "block";
+                        cameraPreview.style.display = "block";
+                        overlayCanvas.style.display = "block";
                     } else {
                         // 노트북: 서버 카메라 사용
                         videoFeed.src = "/video_feed?t=" + new Date().getTime();
                         videoFeed.style.display = "block";
-                        processedFrame.style.display = "none";
+                        cameraPreview.style.display = "none";
+                        overlayCanvas.style.display = "none";
                     }
                 } else {
                     isRunning = false;
@@ -404,6 +481,8 @@
                     if (isMobile) {
                         // 모바일: 카메라 중지
                         stopCamera();
+                        cameraPreview.style.display = "none";
+                        overlayCanvas.style.display = "none";
                     } else {
                         // 노트북: 비디오 피드 비활성화
                         videoFeed.src = "";

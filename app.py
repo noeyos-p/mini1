@@ -143,15 +143,15 @@ async def process_frame(frame: UploadFile = File(...)):
             return Response(content=b'', status_code=400)
 
         # 파이프라인으로 프레임 처리 (YOLO 등)
-        # 변경: 음성 안내 텍스트도 함께 반환
-        processed_img, speech_text = pipeline.process_web_frame_with_speech(img)
+        # 변경: 음성 안내 텍스트 + 감지 데이터도 함께 반환
+        processed_img, speech_text, detection_data = pipeline.process_web_frame_with_speech(img)
 
-        # JPEG로 인코딩
-        _, buffer = cv2.imencode('.jpg', processed_img)
-        img_base64 = __import__('base64').b64encode(buffer).decode('utf-8')
-
-        # JSON으로 이미지와 음성 텍스트 반환
-        return {"image": img_base64, "speech": speech_text}
+        # JSON으로 감지 데이터와 음성 텍스트 반환 (이미지는 클라이언트 렌더링)
+        return {
+            "detection": detection_data,
+            "speech": speech_text,
+            "frame_size": {"width": img.shape[1], "height": img.shape[0]}
+        }
 
     except Exception as e:
         print(f"[Web] 프레임 처리 오류: {e}")

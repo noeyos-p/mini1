@@ -169,6 +169,10 @@ class MVPTestPipeline:
         self.announced_objects = {} # {label: last_seen_time}
         self.announce_timeout = 8.0 # 8초 동안 안 보이면 안내 목록에서 삭제 (다시 나타나면 말함)
 
+        # 웹 모드용 LLM 응답 캐시
+        self.web_speech_cache = {}  # {entity_key: llm_generated_text}
+        self.cache_lock = threading.Lock()
+
         # 모델 로딩
         self.yolo_model = YOLO('yolov8n.pt') 
         self.depth_model_type = "MiDaS_small"
@@ -391,6 +395,23 @@ class MVPTestPipeline:
         return meters
     
     # 모바일 카메라 및 음성
+    def _generate_web_llm_async(self, entity_key, label, meters, pos_desc):
+        """웹 모드용 비동기 LLM 생성 (별도 스레드에서 실행)"""
+        try:
+            # LLM으로 자연스러운 문장 생성
+            explanation = self.follow_up_mgr.service.generate_explanation(label, meters, pos_desc)
+
+            # 실패 시 기본 문장
+            if not explanation:
+                explanation = f"{pos_desc} {meters:.1f}미터에 {label}이 있으니 주의하세요."
+
+            # 캐시에 저장
+            with self.cache_lock:
+                self.web_speech_cache[entity_key] = explanation
+                print(f"[Web LLM] 캐시 저장: {entity_key} -> {explanation}")
+        except Exception as e:
+            print(f"[Web LLM] 오류: {e}")
+
     def process_web_frame(self, frame):
         """웹에서 전송된 프레임을 처리하고 결과 이미지 반환"""
         processed, _ = self.process_web_frame_with_speech(frame)
@@ -440,6 +461,9 @@ class MVPTestPipeline:
                         'cx': cx
                     }
 
+        # 감지된 객체 데이터 (클라이언트 렌더링용)
+        detection_data = None
+
         current_entities = set()
         if closest_obj and min_meters < 10.0:
             b = closest_obj['box']
@@ -451,7 +475,15 @@ class MVPTestPipeline:
             entity_key = (label_name, dist_bin, pos_bin)
             current_entities.add(entity_key)
 
-            # 시각화
+            # 클라이언트 렌더링용 데이터 (numpy → Python 기본 타입 변환)
+            detection_data = {
+                'box': [int(b[0]), int(b[1]), int(b[2]), int(b[3])],
+                'label': str(label_name),
+                'distance': float(round(meters, 1)),
+                'roi': [int(roi_left), int(roi_right)]
+            }
+
+            # 서버 시각화 (노트북 모드용)
             cv2.rectangle(display_frame, (b[0], b[1]), (b[2], b[3]), (0, 0, 255), 3)
             cv2.putText(display_frame, f"{label_name} {meters:.1f}m", (b[0], b[1]-10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
@@ -466,16 +498,39 @@ class MVPTestPipeline:
                 elif closest_obj['cx'] > roi_left + (roi_right - roi_left) * 0.7:
                     pos_desc = "오른쪽"
 
-                # 웹 모드: 음성 텍스트 반환
-                speech_text = f"{pos_desc} {meters:.1f}미터에 {label_name}"
+                # 비동기 LLM 생성 시작 (별도 스레드)
+                llm_thread = threading.Thread(
+                    target=self._generate_web_llm_async,
+                    args=(entity_key, label_name, meters, pos_desc),
+                    daemon=True
+                )
+                llm_thread.start()
+
+            # 캐시된 LLM 응답 확인
+            with self.cache_lock:
+                if entity_key in self.web_speech_cache:
+                    speech_text = self.web_speech_cache[entity_key]
+                else:
+                    # 캐시 없으면 기본 텍스트 (LLM 생성 중)
+                    pos_desc = "정면"
+                    if closest_obj['cx'] < roi_left + (roi_right - roi_left) * 0.3:
+                        pos_desc = "왼쪽"
+                    elif closest_obj['cx'] > roi_left + (roi_right - roi_left) * 0.7:
+                        pos_desc = "오른쪽"
+                    speech_text = f"{pos_desc} {meters:.1f}미터에 {label_name}"
 
         # 오래된 객체 정리
         for entity_key in list(self.announced_objects.keys()):
             if entity_key not in current_entities:
                 if current_time - self.announced_objects[entity_key] > self.announce_timeout:
                     del self.announced_objects[entity_key]
+                    # 캐시도 삭제
+                    with self.cache_lock:
+                        if entity_key in self.web_speech_cache:
+                            del self.web_speech_cache[entity_key]
+                            print(f"[Web LLM] 캐시 삭제: {entity_key}")
 
-        return display_frame, speech_text
+        return display_frame, speech_text, detection_data
 
     def run(self, headless=False):
         """
