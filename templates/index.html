@@ -499,12 +499,18 @@
             if (event) event.stopPropagation();
 
             try {
-                await fetch('/command', {
+                const response = await fetch('/command', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: commandText })
                 });
+                const data = await response.json();
                 console.log("Simulated command sent:", commandText);
+
+                // 명령 응답 음성 안내
+                if (data.response) {
+                    speakDescription(data.response);
+                }
             } catch (error) {
                 console.error("Error sending command:", error);
             }
@@ -585,6 +591,11 @@
                         const data = await response.json();
                         console.log('음성 인식 결과:', data.text);
                         statusText.textContent = '인식: ' + data.text;
+
+                        // 명령 응답 음성 안내
+                        if (data.response) {
+                            speakDescription(data.response);
+                        }
                     } catch (error) {
                         console.error('음성 전송 오류:', error);
                     }
