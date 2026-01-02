@@ -23,3 +23,6 @@ onnxruntime
 openai-whisper
 pyaudio
 
+# Windows TTS (Windows only)
+pywin32
+
