@@ -325,28 +325,20 @@ class MVPTestPipeline:
         text = text.replace(" ", "")
         response_text = None  # 웹 모드용 응답 텍스트
 
-        if "종료" in text:
+        if "종료" in text or "종료해" in text or "종료해줘" in text or "시스템 종료" in text:
             response_text = "시스템을 종료합니다."
             self.speak(response_text, force_stop=True)
             self.running = False
-        elif "다시시작" in text or "다시실행" in text:
-            response_text = "시스템을 다시 시작합니다."
+        elif "시작" in text or "시작해줘" in text or "실행" in text or "실행해줘" in text:
+            response_text = "시스템을 시작합니다."
             self.speak(response_text, force_stop=True)
-        elif "볼륨올려" in text:
-            self.volume = min(100, self.volume + 20)
-            response_text = f"볼륨을 올렸습니다. 현재 볼륨 {self.volume}"
-            self.speak(response_text)
-        elif "볼륨내려" in text:
-            self.volume = max(0, self.volume - 20)
-            response_text = f"볼륨을 내렸습니다. 현재 볼륨 {self.volume}"
-            self.speak(response_text)
-        elif "조용히해" in text or "정지해" in text:
+        elif "조용히해" in text or "정지해" in text or "중지해" in text or "음소거" in text or "음소거해줘" in text:
             self.is_muted = True
             response_text = "음성 안내를 일시 정지합니다."
             self.speak(response_text, force_stop=True)
-        elif "말해줘" in text or "다시말해" in text:
+        elif "말해줘" in text or "다시말해" in text or "다시말해줘" in text or "음성안내시작" in text or "음성안내해줘" in text:
             self.is_muted = False
-            response_text = "음성 안내를 다시 시작합니다."
+            response_text = "음성 안내를 시작합니다."
             self.speak(response_text)
 
         return response_text  # 웹 모드에서 클라이언트로 전달

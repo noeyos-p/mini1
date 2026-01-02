@@ -25,6 +25,7 @@
             touch-action: manipulation;
         }
 
+        /* 변경: 오른쪽 정보 버튼과 겹치지 않도록 왼쪽 정렬 및 너비 제한 */
         #status-text {
             color: white;
             font-family: sans-serif;
@@ -33,10 +34,63 @@
             pointer-events: none;
             position: absolute;
             top: 20px;
+            left: 20px;
+            right: 100px;
             z-index: 10;
             background: rgba(0, 0, 0, 0.5);
             padding: 10px;
             border-radius: 10px;
+            max-width: calc(100% - 140px);
+        }
+
+        /* 정보 버튼 스타일 */
+        .info-button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(33, 150, 243, 0.9);
+            color: white;
+            cursor: pointer;
+            font-size: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+
+        .info-button:hover {
+            background: rgba(33, 150, 243, 1);
+            transform: scale(1.05);
+        }
+
+        .info-button:active {
+            transform: scale(0.95);
+        }
+
+        /* 모바일 반응형 */
+        @media screen and (max-width: 600px) {
+            .info-button {
+                width: 50px;
+                height: 50px;
+                font-size: 1.6rem;
+                top: 15px;
+                right: 15px;
+            }
+
+            #status-text {
+                font-size: 1.2rem;
+                left: 15px;
+                right: 80px;
+                max-width: calc(100% - 100px);
+            }
         }
 
         #video-container {
@@ -89,6 +143,12 @@
 
 <body onclick="handleScreenClick(event)">
     <div id="status-text">화면을 두 번 터치하면 시작합니다.</div>
+
+    <!-- 정보 버튼 (상단 오른쪽) -->
+    <button id="info-btn" onclick="handleClick(event, '정보 버튼입니다. 두 번 클릭하면 사용 가능한 모든 기능을 안내합니다.', showFeatureGuide)" class="info-button">
+        ℹ️
+    </button>
+
     <div id="video-container">
         <!-- 서버 카메라용 (노트북) -->
         <img id="video-feed" src="">
@@ -283,6 +343,30 @@
             utterance.lang = 'ko-KR';
             utterance.rate = 1.0;
             window.speechSynthesis.speak(utterance);
+        }
+
+        // 전체 기능 안내 함수
+        function showFeatureGuide(event) {
+            if (event) event.stopPropagation();
+
+            const guideText = `
+                시각장애인 보조 서비스 사용 가능한 기능을 안내합니다.
+
+                첫째, 화면을 두 번 터치하면 시스템을 시작하거나 정지할 수 있습니다.
+
+                둘째, 하단의 마이크 버튼을 두 번 터치하면 음성 명령을 녹음할 수 있습니다.
+                시작해, 정지해, 말해줘, 조용히해, 종료해 등의 명령어를 사용할 수 있습니다.
+
+                셋째, 음소거 버튼을 두 번 터치하면 현재 재생 중인 음성 안내를 중지합니다.
+
+                넷째, 말하기 버튼을 두 번 터치하면 현재 화면의 상태를 음성으로 안내합니다.
+
+                다섯째, 종료 버튼을 두 번 터치하면 시스템을 종료합니다.
+
+                모든 버튼은 한 번 터치하면 해당 버튼의 설명을, 두 번 터치하면 기능을 실행합니다.
+            `;
+
+            speakDescription(guideText);
         }
 
         // 모바일 여부 확인
