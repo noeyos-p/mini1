@@ -19,8 +19,9 @@ from contextlib import asynccontextmanager
 whisper_model = whisper.load_model("tiny")
 
 # 글로벌 파이프라인 인스턴스
-# 변경: 웹 모드로 생성 (서버 STT/TTS 비활성화)
-pipeline = MVPTestPipeline(web_mode=True)
+# web_mode=False: 로컬 모드 (서버 STT/TTS 활성화, 노트북용)
+# web_mode=True: 웹 모드 (클라이언트 STT/TTS, 모바일용)
+pipeline = MVPTestPipeline(web_mode=False)
 pipeline_thread = None
 
 @asynccontextmanager

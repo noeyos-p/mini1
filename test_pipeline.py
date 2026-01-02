@@ -663,6 +663,10 @@ class MVPTestPipeline:
                     elif closest_obj['cx'] > roi_left + (roi_right - roi_left) * 0.7:
                         pos_desc = "약간 오른쪽"
 
+                    # 즉시 안내 (모든 객체)
+                    immediate_msg = f"{pos_desc} {meters:.1f}미터에 {label_name}"
+                    self.speak(immediate_msg)
+
                     # Trigger natural warning (LLM-based) with strict gating
                     self.follow_up_mgr.schedule_follow_up(label_name, meters, pos_desc, entity_key)
 
