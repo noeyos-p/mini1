@@ -169,6 +169,10 @@ class MVPTestPipeline:
         self.announced_objects = {} # {label: last_seen_time}
         self.announce_timeout = 8.0 # 8초 동안 안 보이면 안내 목록에서 삭제 (다시 나타나면 말함)
 
+        # 라벨별 쿨다운 (같은 종류 객체 반복 안내 방지)
+        self.label_cooldown = {}  # {label: last_announce_time}
+        self.cooldown_time = 5.0  # 5초 쿨다운
+
         # 웹 모드용 LLM 응답 캐시
         self.web_speech_cache = {}  # {entity_key: llm_generated_text}
         self.cache_lock = threading.Lock()
@@ -491,9 +495,16 @@ class MVPTestPipeline:
             cv2.putText(display_frame, f"{label_name} {meters:.1f}m", (b[0], b[1]-10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-            # 음성 안내 (새로운 객체일 때만, 뮤트 상태 아닐 때만)
-            if entity_key not in self.announced_objects and not self.is_muted:
+            # 음성 안내 (라벨 쿨다운 체크, 뮤트 상태 체크)
+            # 라벨별 쿨다운 체크
+            can_announce = True
+            if label_name in self.label_cooldown:
+                if (current_time - self.label_cooldown[label_name]) < self.cooldown_time:
+                    can_announce = False  # 쿨다운 중
+
+            if can_announce and not self.is_muted:
                 self.announced_objects[entity_key] = current_time
+                self.label_cooldown[label_name] = current_time  # 쿨다운 시작
 
                 pos_desc = "정면"
                 if closest_obj['cx'] < roi_left + (roi_right - roi_left) * 0.3:
@@ -509,8 +520,8 @@ class MVPTestPipeline:
                 )
                 llm_thread.start()
 
-            # 캐시된 LLM 응답 확인 (뮤트 상태 아닐 때만)
-            if not self.is_muted:
+            # 캐시된 LLM 응답 확인 (뮤트 상태 아닐 때만, 쿨다운 체크)
+            if can_announce and not self.is_muted:
                 with self.cache_lock:
                     if entity_key in self.web_speech_cache:
                         speech_text = self.web_speech_cache[entity_key]
@@ -633,18 +644,25 @@ class MVPTestPipeline:
                 cv2.putText(display_frame, f"TARGET: {label_name} {meters:.1f}m", (b[0], b[1]-10), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-                # --- 음성 안내 로직 ---
-                if entity_key not in self.announced_objects:
+                # --- 음성 안내 로직 (라벨 쿨다운 체크) ---
+                # 라벨별 쿨다운 체크
+                can_announce = True
+                if label_name in self.label_cooldown:
+                    if (current_time - self.label_cooldown[label_name]) < self.cooldown_time:
+                        can_announce = False  # 쿨다운 중
+
+                if can_announce:
                     # Mark as announced immediately to prevent duplicate triggers
                     self.announced_objects[entity_key] = current_time
-                    
+                    self.label_cooldown[label_name] = current_time  # 쿨다운 시작
+
                     # Determine position description
                     pos_desc = "정면"
                     if closest_obj['cx'] < roi_left + (roi_right - roi_left) * 0.3:
                         pos_desc = "약간 왼쪽"
                     elif closest_obj['cx'] > roi_left + (roi_right - roi_left) * 0.7:
                         pos_desc = "약간 오른쪽"
-                    
+
                     # Trigger natural warning (LLM-based) with strict gating
                     self.follow_up_mgr.schedule_follow_up(label_name, meters, pos_desc, entity_key)
 
