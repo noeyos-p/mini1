@@ -375,11 +375,7 @@
         // 페이지 로드 시 안내
         window.addEventListener('load', function () {
             setTimeout(function () {
-                if (isMobile) {
-                    speakDescription('시각장애인 보조 서비스입니다. 버튼을 한 번 터치하면 설명을, 두 번 터치하면 기능을 실행합니다.');
-                } else {
-                    speakDescription('시각장애인 보조 서비스입니다. 탭 키로 버튼을 이동하며 각 버튼의 설명을 들을 수 있습니다.');
-                }
+                speakDescription('시각장애인 보조 서비스입니다. 버튼을 한 번 터치하면 설명을, 두 번 터치하면 기능을 실행합니다.');
             }, 1000);
         });
 
@@ -546,35 +542,22 @@
                     statusText.style.color = "#4CAF50";
                     videoContainer.style.display = "flex";
 
-                    if (isMobile) {
-                        // 모바일: 클라이언트 카메라 사용 (실시간 영상 + 오버레이)
-                        const cameraStarted = await startCamera();
-                        if (!cameraStarted) return;
-                        videoFeed.style.display = "none";
-                        cameraPreview.style.display = "block";
-                        overlayCanvas.style.display = "block";
-                    } else {
-                        // 노트북: 서버 카메라 사용
-                        videoFeed.src = "/video_feed?t=" + new Date().getTime();
-                        videoFeed.style.display = "block";
-                        cameraPreview.style.display = "none";
-                        overlayCanvas.style.display = "none";
-                    }
+                    // 모든 장치: 클라이언트 카메라 사용 (실시간 영상 + 오버레이)
+                    const cameraStarted = await startCamera();
+                    if (!cameraStarted) return;
+                    videoFeed.style.display = "none";
+                    cameraPreview.style.display = "block";
+                    overlayCanvas.style.display = "block";
                 } else {
                     isRunning = false;
                     statusText.innerHTML = "정지됨. 두 번 터치하면 시작합니다.";
                     statusText.style.color = "#FF5252";
                     videoContainer.style.display = "none";
 
-                    if (isMobile) {
-                        // 모바일: 카메라 중지
-                        stopCamera();
-                        cameraPreview.style.display = "none";
-                        overlayCanvas.style.display = "none";
-                    } else {
-                        // 노트북: 비디오 피드 비활성화
-                        videoFeed.src = "";
-                    }
+                    // 모든 장치: 카메라 중지
+                    stopCamera();
+                    cameraPreview.style.display = "none";
+                    overlayCanvas.style.display = "none";
                 }
             } catch (error) {
                 console.error("Error toggling pipeline:", error);
