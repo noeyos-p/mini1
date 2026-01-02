@@ -1,4 +1,4 @@
-# import os
+import os
 # os.environ['OPENCV_AVFOUNDATION_SKIP_AUTH'] = '1'
 # Mac 카메라권한 문제 관해 환경변수 추가 (Windows 주석처리)
 
@@ -225,8 +225,9 @@ class MVPTestPipeline:
         # Windows용 (주석해제)
         pythoncom.CoInitialize()
         speaker = win32com.client.Dispatch("SAPI.SpVoice")
+        current_process = None  # Windows 모드에서도 초기화
 
-        # Mac용 (1줄) 현재 실행 중인 TTS 프로세스 
+        # Mac용 (1줄) 현재 실행 중인 TTS 프로세스
         # current_process = None
 
         while True:
@@ -552,10 +553,16 @@ class MVPTestPipeline:
         headless=True: GUI 없이 실행 (Mac 웹 모드용)
         headless=False: GUI 창 표시 (Windows 또는 로컬 실행용)
         """
-        cap = cv2.VideoCapture(1) # 0은 내장카메라, 1은 외장카메라
+        # 먼저 내장 카메라(0) 시도, 실패하면 외장 카메라(1) 시도
+        cap = cv2.VideoCapture(0)
         if not cap.isOpened():
-            print("카메라를 열 수 없습니다.")
-            return
+            print("내장 카메라를 열 수 없습니다. 외장 카메라를 시도합니다...")
+            cap = cv2.VideoCapture(1)
+            if not cap.isOpened():
+                print("카메라를 열 수 없습니다.")
+                print("Windows 설정에서 카메라 권한을 확인해주세요:")
+                print("설정 > 개인정보 > 카메라 > 앱이 카메라에 액세스하도록 허용")
+                return
 
         window_name_main = "MVP Test - Color (YOLO)"
         window_name_depth = "MVP Test - Depth (MiDaS)"
