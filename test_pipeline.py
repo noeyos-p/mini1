@@ -350,6 +350,10 @@ class MVPTestPipeline:
 
     def speak(self, text, force_stop=False, is_follow_up=False):
         """안내 문구를 큐에 추가 (비동기)"""
+        # 변경: 웹 모드일 때는 서버에서 TTS를 실행하지 않음 (클라이언트에서 처리)
+        if self.web_mode:
+            return
+
         if force_stop:
             # 기존 큐에 쌓인 모든 메시지 무시하도록 큐 비우기 시도
             while not self.speech_queue.empty():
@@ -502,7 +506,11 @@ class MVPTestPipeline:
                     if meters < self.APPROACH_THRESHOLD_DIST and approach_speed >= self.APPROACH_THRESHOLD_SPEED:
                         warning_msg = f"위험! {label_name}이 매우 빠르게 접근 중입니다."
                         print(f"[RapidApproach] Speed: {approach_speed:.2f} m/s, Dist: {meters:.1f}m. Triggering Warning.")
-                        self.speak(warning_msg, force_stop=True)
+                        # 변경: 웹 모드일 때는 speech_text로 반환, 아니면 speak 호출
+                        if self.web_mode:
+                            speech_text = warning_msg
+                        else:
+                            self.speak(warning_msg, force_stop=True)
             
             # Update velocity history every frame for tracking
             self.entity_velocity_history[entity_key] = (meters, current_time)
@@ -514,10 +522,9 @@ class MVPTestPipeline:
                 if (current_time - self.label_cooldown[label_name]) < self.cooldown_time:
                     can_announce = False  # 쿨다운 중
 
+            # 변경: LLM 생성 시작 (쿨다운 갱신은 실제 재생할 때만)
             if can_announce and not self.is_muted:
-                self.announced_objects[entity_key] = current_time
-                self.label_cooldown[label_name] = current_time  # 쿨다운 시작
-
+                # label_cooldown 갱신은 하지 않음 (실제 재생할 때 갱신)
                 pos_desc = "정면"
                 if closest_obj['cx'] < roi_left + (roi_right - roi_left) * 0.3:
                     pos_desc = "왼쪽"
@@ -532,11 +539,23 @@ class MVPTestPipeline:
                 )
                 llm_thread.start()
 
-            # 캐시된 LLM 응답 확인 (뮤트 상태 아닐 때만, 쿨다운 체크)
-            if can_announce and not self.is_muted:
+            # 변경: 라벨 쿨다운을 활용하여 중복 재생 방지
+            # entity_key는 거리 변화에 따라 바뀌므로, label_name 기준으로 체크
+            can_play = True
+            if label_name in self.label_cooldown:
+                # 마지막 재생 후 쿨다운 시간이 지나지 않았으면 재생 안 함
+                if (current_time - self.label_cooldown[label_name]) < self.cooldown_time:
+                    can_play = False
+
+            if not self.is_muted and can_play:
                 with self.cache_lock:
                     if entity_key in self.web_speech_cache:
                         speech_text = self.web_speech_cache[entity_key]
+                        # 재생했으므로 announced_objects에 추가
+                        self.announced_objects[entity_key] = current_time
+                        # 라벨 쿨다운 갱신 (중복 재생 방지)
+                        self.label_cooldown[label_name] = current_time
+                        print(f"[Web TTS] 캐시에서 음성 재생: {speech_text}")
                     else:
                         # 캐시 없으면 기본 텍스트 (LLM 생성 중)
                         pos_desc = "정면"
@@ -545,6 +564,9 @@ class MVPTestPipeline:
                         elif closest_obj['cx'] > roi_left + (roi_right - roi_left) * 0.7:
                             pos_desc = "오른쪽"
                         speech_text = f"{pos_desc} {meters:.1f}미터에 {label_name}"
+                        # 기본 텍스트도 재생했으므로 쿨다운 갱신
+                        self.label_cooldown[label_name] = current_time
+                        print(f"[Web TTS] 기본 음성 재생: {speech_text}")
 
         # 오래된 객체 정리
         for entity_key in list(self.announced_objects.keys()):
@@ -693,9 +715,9 @@ class MVPTestPipeline:
                     # Determine position description
                     pos_desc = "정면"
                     if closest_obj['cx'] < roi_left + (roi_right - roi_left) * 0.3:
-                        pos_desc = "약간 왼쪽"
+                        pos_desc = "왼쪽"
                     elif closest_obj['cx'] > roi_left + (roi_right - roi_left) * 0.7:
-                        pos_desc = "약간 오른쪽"
+                        pos_desc = "오른쪽"
 
                     # 즉시 안내 (모든 객체)
                     immediate_msg = f"{pos_desc} {meters:.1f}미터에 {label_name}"

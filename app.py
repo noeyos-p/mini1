@@ -21,7 +21,8 @@ whisper_model = whisper.load_model("tiny")
 # 글로벌 파이프라인 인스턴스
 # web_mode=False: 로컬 모드 (서버 STT/TTS 활성화, 노트북용)
 # web_mode=True: 웹 모드 (클라이언트 STT/TTS, 모바일용)
-pipeline = MVPTestPipeline(web_mode=False)
+# 변경: 웹 브라우저에서 TTS를 재생하기 위해 web_mode=True로 설정
+pipeline = MVPTestPipeline(web_mode=True)
 pipeline_thread = None
 
 @asynccontextmanager
@@ -75,14 +76,21 @@ async def start_pipeline():
     global pipeline_thread
     if not pipeline.running:
         print("[Web] 파이프라인 시작 요청")
-        # Window cv2 사용가능 (주석해제)
-        pipeline_thread = threading.Thread(target=pipeline.run, daemon=True)
+        # 변경: 웹 모드일 때는 run() 함수를 실행하지 않음 (클라이언트가 프레임 전송)
+        if pipeline.web_mode:
+            # 웹 모드: running 플래그만 설정, 실제 처리는 /process_frame에서
+            pipeline.running = True
+            return {"status": "started"}
+        else:
+            # 로컬 모드: run() 함수 실행 (서버 카메라 사용)
+            # Window cv2 사용가능 (주석해제)
+            pipeline_thread = threading.Thread(target=pipeline.run, daemon=True)
 
-        # Mac에서 스레드 내 cv2 창 불가로 headless=True 사용
-        # pipeline_thread = threading.Thread(target=lambda: pipeline.run(headless=True), daemon=True)
+            # Mac에서 스레드 내 cv2 창 불가로 headless=True 사용
+            # pipeline_thread = threading.Thread(target=lambda: pipeline.run(headless=True), daemon=True)
 
-        pipeline_thread.start()
-        return {"status": "started"}
+            pipeline_thread.start()
+            return {"status": "started"}
     return {"status": "already_running"}
 
 @app.post("/command")
