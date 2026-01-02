@@ -86,6 +86,7 @@
 </head>
 
 <!-- 기존 코드: onclick="togglePipeline()" -->
+
 <body onclick="handleScreenClick(event)">
     <div id="status-text">화면을 두 번 터치하면 시작합니다.</div>
     <div id="video-container">
@@ -102,102 +103,105 @@
     <!-- 음성 인식 버튼 -->
     <!-- 변경: 한 번 클릭 = 설명, 더블클릭 = 기능 실행 -->
     <div id="debug-panel">
-        <button id="mic-btn"
-            onclick="handleClick(event, '녹음 버튼입니다. 두 번 클릭하면 녹음을 시작하거나 중지합니다.', toggleRecording)"
-            style="background: #2196F3; font-size: 1.2rem; padding: 15px 25px;">
-            🎤 클릭하여 녹음
+        <button id="mic-btn" onclick="handleClick(event, '녹음 버튼입니다. 두 번 클릭하면 녹음을 시작하거나 중지합니다.', toggleRecording)"
+            class="control-btn record-btn">
+            🎤
         </button>
-        <button onclick="handleClick(event, '볼륨 올리기 버튼입니다.', function(e) { sendSimulatedCommand(e, '볼륨 올려'); })">🔊+</button>
-        <button onclick="handleClick(event, '볼륨 내리기 버튼입니다.', function(e) { sendSimulatedCommand(e, '볼륨 내려'); })">🔉-</button>
-        <button onclick="handleClick(event, '음소거 버튼입니다.', function(e) { sendSimulatedCommand(e, '음소거'); })">🔇</button>
-        <button onclick="handleClick(event, '말하기 버튼입니다. 현재 상태를 음성으로 안내합니다.', function(e) { sendSimulatedCommand(e, '말해줘'); })">📢</button>
+        <button onclick="handleClick(event, '음소거 버튼입니다.', function(e) { sendSimulatedCommand(e, '조용히해'); })"
+            class="control-btn">🔇</button>
+        <button
+            onclick="handleClick(event, '말하기 버튼입니다. 현재 상태를 음성으로 안내합니다.', function(e) { sendSimulatedCommand(e, '말해줘'); })"
+            class="control-btn">📢</button>
         <button onclick="handleClick(event, '종료 버튼입니다.', function(e) { sendSimulatedCommand(e, '종료해'); })"
-            style="background: #D32F2F;">🛑</button>
+            class="control-btn exit-btn">🛑</button>
     </div>
 
     <style>
         /* 기존 코드: left, transform 없음 */
         #debug-panel {
             position: absolute;
-            bottom: 20px;
+            bottom: 30px;
             left: 50%;
             transform: translateX(-50%);
             display: flex;
-            flex-wrap: wrap;
+            flex-direction: row;
+            align-items: center;
             justify-content: center;
-            gap: 10px;
+            gap: 20px;
             z-index: 100;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 15px;
-            border-radius: 15px;
-            max-width: 90vw;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 20px;
+            border-radius: 20px;
+            width: fit-content;
+            max-width: 95vw;
             box-sizing: border-box;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        #debug-panel button {
-            padding: 10px 15px;
+        .control-btn {
+            width: 70px;
+            height: 70px;
             border: none;
-            border-radius: 8px;
+            border-radius: 15px;
             background: #333;
             color: white;
             cursor: pointer;
-            font-size: 0.9rem;
-            /* 모바일 터치 최적화 */
+            font-size: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             -webkit-tap-highlight-color: transparent;
             touch-action: manipulation;
-            min-width: 44px;
-            min-height: 44px;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
         }
 
-        /* 기존 코드: hover만 있었음 */
-        #debug-panel button:hover {
+        .record-btn {
+            background: #2196F3 !important;
+            box-shadow: 0 0 15px rgba(33, 150, 243, 0.6);
+            border: 3px solid #fff;
+            color: white;
+            z-index: 2;
+        }
+
+        .exit-btn {
+            background: #444;
+        }
+
+        .control-btn:hover {
             background: #555;
+            transform: translateY(-2px);
         }
 
-        /* 모바일 터치 피드백 */
-        #debug-panel button:active {
-            background: #666;
+        .record-btn:hover {
+            background: #42A5F5 !important;
+            transform: translateY(-2px);
+        }
+
+        .control-btn:active {
+            transform: scale(0.95);
+        }
+
+        .record-btn:active {
             transform: scale(0.95);
         }
 
         /* 모바일 반응형 스타일 */
         @media screen and (max-width: 600px) {
-            #status-text {
-                font-size: 1.1rem;
-                padding: 8px 12px;
-                max-width: 90vw;
-            }
-
             #debug-panel {
-                bottom: 10px;
-                padding: 10px;
-                gap: 8px;
+                bottom: 20px;
+                padding: 15px;
+                gap: 12px;
             }
 
-            #debug-panel button {
-                padding: 12px 16px;
-                font-size: 1.1rem;
-                min-width: 50px;
-                min-height: 50px;
+            .control-btn {
+                width: 65px;
+                height: 65px;
+                font-size: 1.8rem;
             }
 
-            #mic-btn {
-                width: 100%;
-                padding: 15px 20px !important;
-                font-size: 1.1rem !important;
-            }
-        }
-
-        /* 작은 모바일 화면 */
-        @media screen and (max-width: 380px) {
-            #debug-panel {
-                gap: 6px;
-                padding: 8px;
-            }
-
-            #debug-panel button {
-                padding: 10px 12px;
-                font-size: 1rem;
+            .record-btn {
+                border-width: 2px;
             }
         }
     </style>
@@ -236,7 +240,7 @@
                 togglePipeline();
             } else {
                 // 첫 번째 클릭: 타이머 설정
-                screenClickTimer = setTimeout(function() {
+                screenClickTimer = setTimeout(function () {
                     // 싱글클릭: 현재 상태에 따른 안내
                     if (isRunning) {
                         speakDescription('현재 작동 중입니다. 두 번 클릭하면 정지합니다.');
@@ -262,7 +266,7 @@
                 if (actionFunc) actionFunc(event);
             } else {
                 // 첫 번째 클릭: 타이머 설정
-                clickTimer = setTimeout(function() {
+                clickTimer = setTimeout(function () {
                     // 싱글클릭: 설명 읽어주기
                     speakDescription(description);
                     clickTimer = null;
@@ -285,8 +289,8 @@
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
         // 페이지 로드 시 안내
-        window.addEventListener('load', function() {
-            setTimeout(function() {
+        window.addEventListener('load', function () {
+            setTimeout(function () {
                 if (isMobile) {
                     speakDescription('시각장애인 보조 서비스입니다. 버튼을 한 번 터치하면 설명을, 두 번 터치하면 기능을 실행합니다.');
                 } else {
@@ -603,8 +607,8 @@
 
                 mediaRecorder.start();
                 isRecording = true;
-                micBtn.style.background = '#F44336';
-                micBtn.textContent = '🔴 녹음 중지';
+                micBtn.style.background = '#F44336 !important';
+                micBtn.textContent = '🔴';
             } catch (error) {
                 console.error('녹음 시작 오류:', error);
             }
@@ -617,8 +621,8 @@
 
             mediaRecorder.stop();
             isRecording = false;
-            micBtn.style.background = '#2196F3';
-            micBtn.textContent = '🎤 클릭하여 녹음';
+            micBtn.style.background = '';
+            micBtn.textContent = '🎤';
         }
     </script>
 </body>
