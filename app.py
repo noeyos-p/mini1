@@ -162,5 +162,6 @@ if __name__ == "__main__":
     # 템플릿 디렉토리가 없으면 생성
     if not os.path.exists("templates"):
         os.makedirs("templates")
-    # log_level="warning"으로 INFO 로그 숨김
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
+    # access_log=False로 반복되는 /process_frame 로그 숨김
+    # 서버 시작 등 중요한 로그는 표시됨
+    uvicorn.run(app, host="0.0.0.0", port=8000, access_log=False)
