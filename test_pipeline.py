@@ -219,6 +219,11 @@ class MVPTestPipeline:
         # Spatial Bucketing for entity differentiation
         self.DIST_BIN_SIZE = 1.5   # meters
         self.POS_BIN_SIZE = 0.1    # 10% of frame width
+        
+        # Velocity Tracking for Approach Detection
+        self.entity_velocity_history = {} # {entity_key: (last_dist, last_time)}
+        self.APPROACH_THRESHOLD_SPEED = 1.5 # m/s (approx 5.4 km/h)
+        self.APPROACH_THRESHOLD_DIST = 4.0  # meters
 
     def _tts_worker(self):
         """별도 스레드에서 TTS 안내를 처리"""
@@ -488,6 +493,20 @@ class MVPTestPipeline:
             cv2.putText(display_frame, f"{label_name} {meters:.1f}m", (b[0], b[1]-10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
+            # --- Rapid Approach Detection (Independent of Cooldown) ---
+            if entity_key in self.entity_velocity_history:
+                last_dist, last_time = self.entity_velocity_history[entity_key]
+                dt = current_time - last_time
+                if dt > 0:
+                    approach_speed = (last_dist - meters) / dt # m/s
+                    if meters < self.APPROACH_THRESHOLD_DIST and approach_speed >= self.APPROACH_THRESHOLD_SPEED:
+                        warning_msg = f"위험! {label_name}이 매우 빠르게 접근 중입니다."
+                        print(f"[RapidApproach] Speed: {approach_speed:.2f} m/s, Dist: {meters:.1f}m. Triggering Warning.")
+                        self.speak(warning_msg, force_stop=True)
+            
+            # Update velocity history every frame for tracking
+            self.entity_velocity_history[entity_key] = (meters, current_time)
+
             # 음성 안내 (라벨 쿨다운 체크, 뮤트 상태 체크)
             # 라벨별 쿨다운 체크
             can_announce = True
@@ -532,6 +551,9 @@ class MVPTestPipeline:
             if entity_key not in current_entities:
                 if current_time - self.announced_objects[entity_key] > self.announce_timeout:
                     del self.announced_objects[entity_key]
+                    # Also clean up velocity history
+                    if entity_key in self.entity_velocity_history:
+                        del self.entity_velocity_history[entity_key]
                     # 캐시도 삭제
                     with self.cache_lock:
                         if entity_key in self.web_speech_cache:
@@ -643,6 +665,19 @@ class MVPTestPipeline:
                 cv2.putText(display_frame, f"TARGET: {label_name} {meters:.1f}m", (b[0], b[1]-10), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
+                # --- Rapid Approach Detection (Independent of Cooldown) ---
+                if entity_key in self.entity_velocity_history:
+                    last_dist, last_time = self.entity_velocity_history[entity_key]
+                    dt = current_time - last_time
+                    if dt > 0:
+                        approach_speed = (last_dist - meters) / dt
+                        if meters < self.APPROACH_THRESHOLD_DIST and approach_speed >= self.APPROACH_THRESHOLD_SPEED:
+                            warning_msg = f"위험! {label_name}이 매우 빠르게 접근 중입니다."
+                            print(f"[RapidApproach] Speed: {approach_speed:.2f} m/s, Dist: {meters:.1f}m. Triggering Warning.")
+                            self.speak(warning_msg, force_stop=True)
+                
+                self.entity_velocity_history[entity_key] = (meters, current_time)
+
                 # --- 음성 안내 로직 (라벨 쿨다운 체크) ---
                 # 라벨별 쿨다운 체크
                 can_announce = True
@@ -679,6 +714,9 @@ class MVPTestPipeline:
                     # 감지 영역에서 사라짐 -> 안내 목록에서 삭제
                     if current_time - self.announced_objects[entity_key] > self.announce_timeout:
                         del self.announced_objects[entity_key]
+                        # Also clean up velocity history
+                        if entity_key in self.entity_velocity_history:
+                            del self.entity_velocity_history[entity_key]
                         # 만약 사라진 물체에 대한 후속 안내가 예약되어 있다면 취소
                         self.follow_up_mgr.cancel_pending()
 
